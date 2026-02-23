@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>NovelAI API 生成图片 - 前端HTML测试</title>
+  <style>
+    :root { color-scheme: dark; }
+    body { margin:0; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial; background:#0b0d12; color:#e6e8ee; }
+    .wrap { max-width: 980px; margin: 0 auto; padding: 20px; }
+    .card { background:#121725; border:1px solid #222a3e; border-radius: 14px; padding: 16px; }
+    .row { display:grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    @media (max-width: 900px) { .row { grid-template-columns: 1fr; } }
+    label { display:block; font-size:12px; opacity:.85; margin: 10px 0 6px; }
+    input, textarea { width:100%; padding:10px 12px; border-radius:10px; border:1px solid #2a3350; background:#0e1320; color:#e6e8ee; box-sizing: border-box; }
+    textarea { resize: vertical; }
+    button { padding:10px 14px; border-radius:10px; border:1px solid #2a3350; background:#1a2450; color:#fff; cursor:pointer; }
+    button:disabled { opacity:.6; cursor:not-allowed; }
+    .hint { font-size:12px; opacity:.75; margin-top: 6px; line-height: 1.5; }
+    .err { color:#ff7b7b; white-space: pre-wrap; }
+    .ok { color:#7bffb5; white-space: pre-wrap; }
+    .grid { margin-top: 14px; display:grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+    @media (max-width: 900px) { .grid { grid-template-columns: repeat(2, 1fr); } }
+    img { width:100%; border-radius: 12px; border:1px solid #222a3e; display:block; }
+    small { opacity:.75; }
+    .bar { display:flex; gap:10px; align-items:center; margin-top: 12px; }
+    .pill { font-size:12px; padding:4px 8px; border:1px solid #2a3350; border-radius:999px; opacity:.9; }
+    details { margin-top: 10px; }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+  </style>
+
+  <!-- JSZip (用于解压 NovelAI 返回的 zip) -->
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+</head>
+<body>
+  <div class="wrap">
+    <h2 style="margin:0 0 10px;">NovelAI 图像生成（纯前端 HTML 测试）</h2>
+
+    <div class="card">
+      <div class="row">
+        <div>
+          <label>NovelAI Token（会暴露在浏览器里，仅用于测试）</label>
+          <input id="token" placeholder="pst-xxxxxxxxxxxxxxxx" />
+          <div class="hint">⚠️ 纯前端会泄露 Token，不要用于公开站点。</div>
+        </div>
+        <div>
+          <label>模型 model</label>
+          <input id="model" value="nai-diffusion-3" />
+          <div class="hint">不确定可先用默认。若报错说明该 model 你账号不可用。</div>
+        </div>
+      </div>
+
+      <label>Prompt</label>
+      <textarea id="prompt" rows="4">1girl, anime, best quality, masterpiece, cute, soft lighting</textarea>
+
+      <label>Negative Prompt</label>
+      <textarea id="negative" rows="2">lowres, bad anatomy, blurry</textarea>
+
+      <div class="row">
+        <div>
+          <label>宽 width</label>
+          <input id="width" type="number" value="832" />
+        </div>
+        <div>
+          <label>高 height</label>
+          <input id="height" type="number" value="1216" />
+        </div>
+      </div>
+
+      <div class="row">
+        <div>
+          <label>步数 steps</label>
+          <input id="steps" type="number" value="28" />
+        </div>
+        <div>
+          <label>CFG scale</label>
+          <input id="scale" type="number" value="5" />
+        </div>
+      </div>
+
+      <div class="row">
+        <div>
+          <label>采样器 sampler</label>
+          <input id="sampler" value="k_euler_ancestral" />
+        </div>
+        <div>
+          <label>张数 n_samples</label>
+          <input id="n_samples" type="number" value="1" />
+        </div>
+      </div>
+
+      <div class="row">
+        <div>
+          <label>seed（可选）</label>
+          <input id="seed" placeholder="留空=随机/默认" />
+        </div>
+        <div>
+          <label>返回格式</label>
+          <input value="zip（NovelAI 默认）" disabled />
+        </div>
+      </div>
+
+      <div class="bar">
+        <button id="btn">生成</button>
+        <span class="pill" id="status">idle</span>
+      </div>
+
+      <div id="msg" class="hint"></div>
+
+      <details>
+        <summary>如果你遇到 CORS/跨域错误怎么办？（点开）</summary>
+        <div class="hint">
+          浏览器可能会拦截对 <code>https://image.novelai.net</code> 的跨域请求（CORS）。<br/>
+          最稳妥的办法是加一个后端代理（你前面说的 Node/Express 就是为了解决这个 + 保护 Token）。<br/>
+          只想临时测试，你可以用本地开发服务器打开本页（见下方“运行方式”），并观察控制台报错内容。
+        </div>
+      </details>
+    </div>
+
+    <div id="out" class="grid"></div>
+
+    <div class="hint" style="margin-top: 14px;">
+      <b>运行方式建议（避免 file:// 限制）：</b><br/>
+      1) 用 VSCode 的 Live Server 插件打开；或<br/>
+      2) 终端在本目录运行：<code>python -m http.server 5173</code>，然后访问 <code>http://localhost:5173</code>
+    </div>
+  </div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+
+  function setStatus(text, kind="") {
+    $("status").textContent = text;
+    $("status").className = "pill " + kind;
+  }
+
+  function showMsg(text, type="hint") {
+    const el = $("msg");
+    el.className = type === "err" ? "err" : (type === "ok" ? "ok" : "hint");
+    el.textContent = text || "";
+  }
+
+  function clearImages() {
+    $("out").innerHTML = "";
+  }
+
+  function addImage(dataUrl, filename) {
+    const box = document.createElement("div");
+    const img = document.createElement("img");
+    img.src = dataUrl;
+    img.alt = filename;
+    const cap = document.createElement("small");
+    cap.textContent = filename;
+    box.appendChild(img);
+    box.appendChild(cap);
+    $("out").appendChild(box);
+  }
+
+  async function unzipAndShow(arrayBuffer) {
+    const zip = await JSZip.loadAsync(arrayBuffer);
+    const files = Object.values(zip.files);
+    let count = 0;
+
+    for (const f of files) {
+      if (f.dir) continue;
+      const name = f.name.toLowerCase();
+      if (!name.endsWith(".png") && !name.endsWith(".webp") && !name.endsWith(".jpg") && !name.endsWith(".jpeg")) continue;
+
+      const u8 = await f.async("uint8array");
+      const blob = new Blob([u8], { type: name.endsWith(".webp") ? "image/webp" : (name.endsWith(".jpg")||name.endsWith(".jpeg")) ? "image/jpeg" : "image/png" });
+      const url = URL.createObjectURL(blob);
+      addImage(url, f.name);
+      count++;
+    }
+
+    return count;
+  }
+
+  async function generate() {
+    clearImages();
+    showMsg("");
+    setStatus("requesting");
+
+    const token = $("token").value.trim();
+    const prompt = $("prompt").value.trim();
+    const negative = $("negative").value.trim();
+
+    if (!token) {
+      setStatus("idle");
+      showMsg("请先粘贴 NovelAI Token（pst-...）", "err");
+      return;
+    }
+    if (!prompt) {
+      setStatus("idle");
+      showMsg("prompt 不能为空", "err");
+      return;
+    }
+
+    const body = {
+      action: "generate",
+      input: prompt,
+      model: $("model").value.trim() || "nai-diffusion-3",
+      parameters: {
+        width: Number($("width").value || 832),
+        height: Number($("height").value || 1216),
+        steps: Number($("steps").value || 28),
+        scale: Number($("scale").value || 5),
+        sampler: $("sampler").value.trim() || "k_euler_ancestral",
+        n_samples: Number($("n_samples").value || 1),
+        negative_prompt: negative
+      }
+    };
+
+    const seedRaw = $("seed").value.trim();
+    if (seedRaw !== "" && Number.isFinite(Number(seedRaw))) {
+      body.parameters.seed = Number(seedRaw);
+    }
+
+    try {
+      const resp = await fetch("https://image.novelai.net/ai/generate-image", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          // 常见用法：Bearer token（token 常见前缀 pst-）
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify(body)
+      });
+
+      if (!resp.ok) {
+        const text = await resp.text().catch(() => "");
+        setStatus("error");
+        showMsg(
+          "请求失败：HTTP " + resp.status + "\n\n" +
+          "可能原因：Token 无效 / model 不可用 / 参数不合法 / 或被 CORS 拦截。\n\n" +
+          "响应内容（节选）：\n" + text.slice(0, 2000),
+          "err"
+        );
+        return;
+      }
+
+      setStatus("unzipping");
+      const arrayBuffer = await resp.arrayBuffer();
+      const n = await unzipAndShow(arrayBuffer);
+
+      setStatus("done");
+      showMsg(`成功解压并展示 ${n} 张图片。`, "ok");
+    } catch (e) {
+      setStatus("error");
+      showMsg(
+        "调用出错（大概率是 CORS 或网络问题）：\n" + String(e?.message || e) +
+        "\n\n请打开浏览器控制台看详细报错。如果是 CORS，建议用后端代理版本。",
+        "err"
+      );
+    }
+  }
+
+  $("btn").addEventListener("click", () => {
+    $("btn").disabled = true;
+    generate().finally(() => { $("btn").disabled = false; });
+  });
+</script>
+</body>
+</html>
